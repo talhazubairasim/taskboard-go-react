@@ -1,4 +1,4 @@
-# TaskBoard — Go + GraphQL + React + PostgreSQL + Docker + K8s + JWT
+# TaskBoard — Go + GraphQL + React + PostgreSQL + Docker + K8s + JWT 
 
 Minimal full-stack demo intended to be finished in ~2 days:
 - Backend: Go (gqlgen) + pgx + JWT (demo)
