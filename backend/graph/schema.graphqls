@@ -1,0 +1,22 @@
+schema {
+  query: Query
+  mutation: Mutation
+}
+
+type Task {
+  id: ID!
+  title: String!
+  description: String
+  status: String!
+}
+
+type Query {
+  tasks: [Task!]!
+}
+
+type Mutation {
+  createTask(title: String!, description: String): Task!
+  updateTask(id: ID!, status: String!): Task!
+  deleteTask(id: ID!): Boolean!
+  login(username: String!, password: String!): String! # returns JWT token
+}

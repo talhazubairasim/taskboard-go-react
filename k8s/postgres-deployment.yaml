@@ -1,0 +1,41 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pgdata
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+spec:
+  selector:
+    matchLabels:
+      app: postgres
+  template:
+    metadata:
+      labels:
+        app: postgres
+    spec:
+      containers:
+      - name: postgres
+        image: postgres:15
+        env:
+        - name: POSTGRES_USER
+          value: postgres
+        - name: POSTGRES_PASSWORD
+          value: password
+        - name: POSTGRES_DB
+          value: taskboard
+        volumeMounts:
+        - name: pgdata
+          mountPath: /var/lib/postgresql/data
+      volumes:
+      - name: pgdata
+        persistentVolumeClaim:
+          claimName: pgdata

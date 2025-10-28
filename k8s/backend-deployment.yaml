@@ -1,0 +1,31 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: taskboard-backend
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: taskboard-backend
+  template:
+    metadata:
+      labels:
+        app: taskboard-backend
+    spec:
+      containers:
+      - name: backend
+        image: yourdockerhubusername/taskboard-backend:latest
+        ports:
+        - containerPort: 8080
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-svc
+spec:
+  ports:
+  - port: 8080
+    targetPort: 8080
+  selector:
+    app: taskboard-backend
+  type: ClusterIP
