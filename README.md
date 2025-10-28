@@ -42,4 +42,4 @@ mutation { createTask(title: "Hello from Go", description: "demo") { id title } 
 query { tasks { id title status } }
 
 
-Frontend will call the GraphQL endpoint at http://localhost:8080/query (CORS may require adjustments if you run across issues; using the dev containers as above should work).# taskboard-go-react
+Frontend will call the GraphQL endpoint at http://localhost:8080/query (CORS may require adjustments if you run across issues; using the dev containers as above should work).# taskboard-go-react 
