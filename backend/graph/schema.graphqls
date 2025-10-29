@@ -1,0 +1,117 @@
+scalar Time
+
+type User {
+  id: ID!
+  email: String!
+  name: String!
+  avatar: String
+  createdAt: Time!
+  updatedAt: Time!
+}
+
+type Task {
+  id: ID!
+  title: String!
+  description: String
+  status: TaskStatus!
+  priority: Priority!
+  createdBy: User!
+  assignedTo: User
+  createdAt: Time!
+  updatedAt: Time!
+  dueDate: Time
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  REVIEW
+  DONE
+}
+
+enum Priority {
+  LOW
+  MEDIUM
+  HIGH
+  URGENT
+}
+
+type AuthPayload {
+  token: String!
+  refreshToken: String!
+  user: User!
+}
+
+input RegisterInput {
+  email: String!
+  password: String!
+  name: String!
+}
+
+input LoginInput {
+  email: String!
+  password: String!
+}
+
+input CreateTaskInput {
+  title: String!
+  description: String
+  status: TaskStatus
+  priority: Priority
+  assignedToId: ID
+  dueDate: Time
+}
+
+input UpdateTaskInput {
+  title: String
+  description: String
+  status: TaskStatus
+  priority: Priority
+  assignedToId: ID
+  dueDate: Time
+}
+
+input TaskFilterInput {
+  status: TaskStatus
+  priority: Priority
+  assignedToId: ID
+  createdById: ID
+}
+
+type Query {
+  # Auth
+  me: User!
+  
+  # Users
+  user(id: ID!): User
+  users: [User!]!
+  
+  # Tasks
+  task(id: ID!): Task
+  tasks(filter: TaskFilterInput): [Task!]!
+  myTasks: [Task!]!
+  assignedTasks: [Task!]!
+}
+
+type Mutation {
+  # Auth
+  register(input: RegisterInput!): AuthPayload!
+  login(input: LoginInput!): AuthPayload!
+  refreshToken(refreshToken: String!): AuthPayload!
+  
+  # Tasks
+  createTask(input: CreateTaskInput!): Task!
+  updateTask(id: ID!, input: UpdateTaskInput!): Task!
+  deleteTask(id: ID!): Boolean!
+  assignTask(taskId: ID!, userId: ID!): Task!
+  unassignTask(taskId: ID!): Task!
+  
+  # User
+  updateProfile(name: String, avatar: String): User!
+}
+
+type Subscription {
+  taskCreated: Task!
+  taskUpdated(taskId: ID): Task!
+  taskDeleted: ID!
+}
