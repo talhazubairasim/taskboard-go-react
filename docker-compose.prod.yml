@@ -1,0 +1,204 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: taskboard_postgres_prod
+    environment:
+      POSTGRES_DB: taskboard_prod
+      POSTGRES_USER: taskboard_user
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-changemeinprod}
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    networks:
+      - taskboard_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U taskboard_user -d taskboard_prod"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Redis for caching and sessions
+  redis:
+    image: redis:7-alpine
+    container_name: taskboard_redis_prod
+    command: redis-server --appendonly yes
+    volumes:
+      - redis_data_prod:/data
+    ports:
+      - "6379:6379"
+    networks:
+      - taskboard_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # Go Backend API
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.prod
+      target: backend
+    container_name: taskboard_backend_prod
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=taskboard_prod
+      - DB_USER=taskboard_user
+      - DB_PASSWORD=${DB_PASSWORD:-changemeinprod}
+      - REDIS_URL=redis://redis:6379
+      - JWT_SECRET=${JWT_SECRET:-changemeinprod}
+      - CORS_ORIGIN=${CORS_ORIGIN:-https://yourdomain.com}
+      - NODE_ENV=production
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - taskboard_network
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.backend.rule=Host(`api.yourdomain.com`)"
+      - "traefik.http.routers.backend.entrypoints=websecure"
+      - "traefik.http.routers.backend.tls.certresolver=myresolver"
+
+  # React Frontend
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.prod
+      target: frontend
+    container_name: taskboard_frontend_prod
+    environment:
+      - REACT_APP_API_URL=https://api.yourdomain.com
+      - REACT_APP_WS_URL=wss://api.yourdomain.com
+      - GENERATE_SOURCEMAP=false
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    networks:
+      - taskboard_network
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.frontend.rule=Host(`yourdomain.com`)"
+      - "traefik.http.routers.frontend.entrypoints=websecure"
+      - "traefik.http.routers.frontend.tls.certresolver=myresolver"
+
+  # Nginx Reverse Proxy (optional - if not using Traefik)
+  nginx:
+    image: nginx:alpine
+    container_name: taskboard_nginx_prod
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/prod.conf:/etc/nginx/nginx.conf:ro
+      - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - taskboard_network
+    restart: unless-stopped
+
+  # Traefik for reverse proxy and SSL (recommended for production)
+  traefik:
+    image: traefik:v2.10
+    container_name: taskboard_traefik_prod
+    command:
+      - "--api.dashboard=true"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.websecure.address=:443"
+      - "--certificatesresolvers.myresolver.acme.tlschallenge=true"
+      - "--certificatesresolvers.myresolver.acme.email=admin@yourdomain.com"
+      - "--certificatesresolvers.myresolver.acme.storage=/letsencrypt/acme.json"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "8081:8080"  # Traefik dashboard
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock:ro"
+      - "./letsencrypt:/letsencrypt"
+    networks:
+      - taskboard_network
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.traefik.rule=Host(`traefik.yourdomain.com`)"
+      - "traefik.http.routers.traefik.service=api@internal"
+      - "traefik.http.routers.traefik.middlewares=auth"
+      - "traefik.http.middlewares.auth.basicauth.users=admin:$$apr1$$9Cv/OMGj$$Zom2Qa0Rl6CFkEsoQjqmj/"
+
+  # Monitoring with Prometheus and Grafana
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: taskboard_prometheus_prod
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data_prod:/prometheus
+    ports:
+      - "9090:9090"
+    networks:
+      - taskboard_network
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: taskboard_grafana_prod
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_PASSWORD:-changemeinprod}
+    volumes:
+      - grafana_data_prod:/var/lib/grafana
+      - ./monitoring/dashboards:/etc/grafana/provisioning/dashboards
+      - ./monitoring/datasources:/etc/grafana/provisioning/datasources
+    ports:
+      - "3001:3000"
+    depends_on:
+      - prometheus
+    networks:
+      - taskboard_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data_prod:
+    driver: local
+  redis_data_prod:
+    driver: local
+  prometheus_data_prod:
+    driver: local
+  grafana_data_prod:
+    driver: local
+
+networks:
+  taskboard_network:
+    driver: bridge
+    name: taskboard_prod_network

@@ -43,4 +43,14 @@
     "vite": "^5.0.8",
     "vitest": "^1.0.4"
   }
+  {
+  "scripts": {
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "test:components": "jest components/",
+    "test:hooks": "jest hooks/",
+    "test:ui": "jest --verbose"
+  }
+}
 }
