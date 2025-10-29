@@ -361,7 +361,6 @@ make db-shell      # Open PostgreSQL shell
 ## 📚 Documentation
 
 - [Implementation Guide](IMPLEMENTATION_GUIDE.md) - Detailed setup instructions
-- [Interview Summary](INTERVIEW_READY_SUMMARY.md) - Project highlights for interviews
 - [GraphQL Schema](backend/graph/schema.graphqls) - API documentation
 
 ## 🤝 Contributing
