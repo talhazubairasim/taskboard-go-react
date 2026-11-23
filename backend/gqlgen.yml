@@ -54,4 +54,4 @@ models:
       - github.com/99designs/gqlgen/graphql.Int32
   Time:
     model:
-      - time.Time
+      - github.com/99designs/gqlgen/graphql.Time
