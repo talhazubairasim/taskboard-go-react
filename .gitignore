@@ -16,3 +16,4 @@ backend/coverage*.out
 .DS_Store
 .idea/
 .vscode/
+backend/build.log

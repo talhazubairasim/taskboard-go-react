@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"net/url"
 	"time"
 
 	"github.com/99designs/gqlgen/graphql/handler"
@@ -14,7 +15,7 @@ import (
 	"github.com/99designs/gqlgen/graphql/handler/lru"
 	"github.com/99designs/gqlgen/graphql/handler/transport"
 	"github.com/99designs/gqlgen/graphql/playground"
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
 	"github.com/rs/cors"
 	"github.com/vektah/gqlparser/v2/ast"
 
@@ -58,9 +59,7 @@ func New(d Deps) http.Handler {
 	}}))
 	gql.AddTransport(transport.Websocket{
 		KeepAlivePingInterval: 10 * time.Second,
-		Upgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool { return originAllowed(d, r.Header.Get("Origin")) },
-		},
+		Implementation:        transport.CoderWebsocketImplementation{AcceptOptions: acceptOptions(d)},
 		// The frontend sends {"Authorization": "Bearer <token>"} in connection_init.
 		InitFunc: func(ctx context.Context, p transport.InitPayload) (context.Context, *transport.InitPayload, error) {
 			header := p.Authorization()
@@ -125,16 +124,22 @@ func New(d Deps) http.Handler {
 	}).Handler(h)
 }
 
-func originAllowed(d Deps, origin string) bool {
-	if origin == "" || d.Env == "development" {
-		return true
+// acceptOptions controls which browser origins may open a WebSocket.
+// Development accepts any origin; otherwise only CORS_ALLOWED_ORIGINS.
+func acceptOptions(d Deps) websocket.AcceptOptions {
+	if d.Env == "development" {
+		return websocket.AcceptOptions{InsecureSkipVerify: true}
 	}
+	var patterns []string
 	for _, o := range d.AllowedOrigins {
-		if o == "*" || o == origin {
-			return true
+		if o == "*" {
+			return websocket.AcceptOptions{InsecureSkipVerify: true}
+		}
+		if u, err := url.Parse(o); err == nil && u.Host != "" {
+			patterns = append(patterns, u.Host)
 		}
 	}
-	return false
+	return websocket.AcceptOptions{OriginPatterns: patterns}
 }
 
 // Metrics is the body of GET /metrics.

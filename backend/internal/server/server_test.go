@@ -696,7 +696,10 @@ func TestMetricsWithoutOptionalDeps(t *testing.T) {
 	if res.StatusCode != 200 {
 		t.Fatal("ready without checker should be 200")
 	}
-	if !originAllowed(Deps{AllowedOrigins: []string{"*"}}, "http://any") {
-		t.Fatal("wildcard origin")
+	if !acceptOptions(Deps{AllowedOrigins: []string{"*"}}).InsecureSkipVerify {
+		t.Fatal("wildcard origin should accept any origin")
+	}
+	if o := acceptOptions(Deps{AllowedOrigins: []string{"https://app.test", "::bad"}}); len(o.OriginPatterns) != 1 || o.OriginPatterns[0] != "app.test" {
+		t.Fatalf("origin patterns = %v", o.OriginPatterns)
 	}
 }

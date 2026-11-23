@@ -1,7 +1,0 @@
-# taskboard/internal/server
-internal/server/server.go:61:3: unknown field Upgrader in struct literal of type transport.Websocket
-# taskboard/internal/server
-internal/server/server.go:61:3: unknown field Upgrader in struct literal of type transport.Websocket
-# taskboard/internal/server
-# [taskboard/internal/server]
-vet: internal/server/server.go:61:3: unknown field Upgrader in struct literal of type transport.Websocket
