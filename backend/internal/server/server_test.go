@@ -273,7 +273,8 @@ func TestRESTFlow(t *testing.T) {
 	if code := h.do("POST", "/api/tasks/"+task.ID+"/assign", alice.Token, map[string]string{"userId": "nobody"}, nil); code != 400 {
 		t.Fatalf("assign missing user %d", code)
 	}
-	if code := h.do("POST", "/api/tasks/"+task.ID+"/unassign", alice.Token, nil, &task); code != 200 || task.AssignedTo != nil {
+	var unassigned taskJSON
+	if code := h.do("POST", "/api/tasks/"+task.ID+"/unassign", alice.Token, nil, &unassigned); code != 200 || unassigned.AssignedTo != nil {
 		t.Fatalf("unassign %d", code)
 	}
 	if code := h.do("POST", "/api/tasks/missing/unassign", alice.Token, nil, nil); code != 404 {
