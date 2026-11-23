@@ -5,7 +5,7 @@ name: Codegen
 on:
   push:
     branches: [fix/make-readme-true]
-    paths: [".github/workflows/codegen.yml"]
+    paths: [".github/workflows/codegen.yml", "backend/gqlgen.yml"]
 
 permissions:
   contents: write
@@ -24,7 +24,7 @@ jobs:
       - run: |
           rm -f go.sum
           go mod tidy
-          go run github.com/99designs/gqlgen generate
+          go run github.com/99designs/gqlgen generate 2>&1 | tee build.log
           go mod tidy
           gofmt -w .
           go build ./... 2>&1 | tee build.log || true
