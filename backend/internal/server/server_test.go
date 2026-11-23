@@ -246,8 +246,9 @@ func TestRESTFlow(t *testing.T) {
 	if code := h.do("PATCH", "/api/tasks/"+task.ID, bob.Token, map[string]interface{}{"status": "IN_PROGRESS", "title": "Design v2", "priority": "LOW"}, &task); code != 200 || task.Status != "IN_PROGRESS" {
 		t.Fatalf("patch %d", code)
 	}
-	if code := h.do("PUT", "/api/tasks/"+task.ID, alice.Token, `{"description":null,"dueDate":null}`, &task); code != 200 || task.Description != nil || task.DueDate != nil {
-		t.Fatalf("clear fields %d %+v", code, task)
+	var cleared taskJSON
+	if code := h.do("PUT", "/api/tasks/"+task.ID, alice.Token, `{"description":null,"dueDate":null}`, &cleared); code != 200 || cleared.Description != nil || cleared.DueDate != nil {
+		t.Fatalf("clear fields %d %+v", code, cleared)
 	}
 	if code := h.do("PATCH", "/api/tasks/"+task.ID, alice.Token, map[string]string{"dueDate": "2031-05-06T00:00:00Z", "description": "again"}, &task); code != 200 || task.DueDate == nil {
 		t.Fatalf("set due date %d", code)
