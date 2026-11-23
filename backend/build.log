@@ -1,10 +1,7 @@
-# taskboard/graph
-graph/generated.go:4603:17: ec.unmarshalInputTime undefined (type *executionContext has no field or method unmarshalInputTime)
-graph/generated.go:4608:12: ec._Time undefined (type *executionContext has no field or method _Time)
-graph/generated.go:4899:17: ec.unmarshalInputTime undefined (type *executionContext has no field or method unmarshalInputTime)
-graph/generated.go:4907:12: ec._Time undefined (type *executionContext has no field or method _Time)
-# taskboard/graph
-graph/generated.go:4603:17: ec.unmarshalInputTime undefined (type *executionContext has no field or method unmarshalInputTime)
-graph/generated.go:4608:12: ec._Time undefined (type *executionContext has no field or method _Time)
-graph/generated.go:4899:17: ec.unmarshalInputTime undefined (type *executionContext has no field or method unmarshalInputTime)
-graph/generated.go:4907:12: ec._Time undefined (type *executionContext has no field or method _Time)
+# taskboard/internal/server
+internal/server/server.go:61:3: unknown field Upgrader in struct literal of type transport.Websocket
+# taskboard/internal/server
+internal/server/server.go:61:3: unknown field Upgrader in struct literal of type transport.Websocket
+# taskboard/internal/server
+# [taskboard/internal/server]
+vet: internal/server/server.go:61:3: unknown field Upgrader in struct literal of type transport.Websocket
