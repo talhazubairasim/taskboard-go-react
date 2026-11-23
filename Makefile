@@ -1,71 +1,74 @@
-.PHONY: help dev build test clean generate lint format docker-up docker-down db-shell
+.PHONY: help dev build test test-backend test-frontend test-integration coverage clean generate lint format \
+        docker-up docker-down docker-clean db-shell redis-shell logs logs-backend logs-frontend install setup \
+        migrate-up migrate-down prod
+
+TEST_DATABASE_URL ?= postgresql://postgres:postgres@localhost:5432/taskboard_test?sslmode=disable
+REDIS_TEST_ADDR   ?= localhost:6379
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
 	@echo ''
 	@echo 'Available targets:'
-	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-15s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
+	@awk 'BEGIN {FS = ":.*?## "} /^[a-zA-Z_-]+:.*?## / {printf "  %-18s %s\n", $$1, $$2}' $(MAKEFILE_LIST)
 
 dev: ## Start development environment
-	docker-compose up --build
+	docker compose up --build
 
 build: ## Build all services
-	docker-compose build
+	docker compose build
 
-test: ## Run all tests
-	@echo "Running backend tests..."
-	cd backend && go test ./... -v -cover
-	@echo "Running frontend tests..."
-	cd frontend && npm test
+test: test-backend test-frontend ## Run all tests
 
-test-integration: ## Run integration tests
-	@echo "Running integration tests..."
-	cd backend && go test ./tests/integration_test.go -v
+test-backend: ## Run backend tests (needs Postgres + Redis: `make docker-up` or local)
+	cd backend && TEST_DATABASE_URL="$(TEST_DATABASE_URL)" REDIS_TEST_ADDR="$(REDIS_TEST_ADDR)" go test ./... -v -cover
+
+test-frontend: ## Run frontend tests
+	cd frontend && npm test -- --run
+
+test-integration: ## Run integration tests against Postgres + Redis
+	cd backend && TEST_DATABASE_URL="$(TEST_DATABASE_URL)" REDIS_TEST_ADDR="$(REDIS_TEST_ADDR)" go test ./tests/... -v -count=1
+
+coverage: ## Backend + frontend coverage (fails under 95%)
+	TEST_DATABASE_URL="$(TEST_DATABASE_URL)" REDIS_TEST_ADDR="$(REDIS_TEST_ADDR)" ./scripts/coverage.sh
+	cd frontend && npm run coverage
 
 generate: ## Generate GraphQL code
-	cd backend && gqlgen generate
+	cd backend && go run github.com/99designs/gqlgen generate
 
 lint: ## Run linters
-	@echo "Linting backend..."
-	cd backend && golangci-lint run
-	@echo "Linting frontend..."
+	cd backend && go vet ./... && gofmt -l . | (! grep .)
 	cd frontend && npm run lint
 
 format: ## Format code
-	@echo "Formatting backend..."
 	cd backend && gofmt -w .
-	@echo "Formatting frontend..."
 	cd frontend && npm run format
 
 docker-up: ## Start Docker containers
-	docker-compose up -d
+	docker compose up -d
 
 docker-down: ## Stop Docker containers
-	docker-compose down
+	docker compose down
 
 docker-clean: ## Remove Docker containers and volumes
-	docker-compose down -v
-	docker system prune -f
+	docker compose down -v
 
 db-shell: ## Open PostgreSQL shell
-	docker-compose exec postgres psql -U postgres -d taskboard
+	docker compose exec postgres psql -U postgres -d taskboard
 
 redis-shell: ## Open Redis CLI
-	docker-compose exec redis redis-cli
+	docker compose exec redis redis-cli
 
 logs: ## Show logs
-	docker-compose logs -f
+	docker compose logs -f
 
 logs-backend: ## Show backend logs
-	docker-compose logs -f backend
+	docker compose logs -f backend
 
 logs-frontend: ## Show frontend logs
-	docker-compose logs -f frontend
+	docker compose logs -f frontend
 
 clean: ## Clean build artifacts
-	rm -rf backend/main
-	rm -rf frontend/dist
-	rm -rf frontend/node_modules
+	rm -rf backend/coverage*.out frontend/dist frontend/coverage frontend/node_modules
 
 install: ## Install dependencies
 	cd backend && go mod download
@@ -76,8 +79,8 @@ setup: install generate ## Setup project
 migrate-up: ## Run database migrations
 	cd backend && go run cmd/migrate/main.go up
 
-migrate-down: ## Rollback database migrations
+migrate-down: ## Rollback the latest database migration
 	cd backend && go run cmd/migrate/main.go down
 
 prod: ## Start production environment
-	docker-compose -f docker-compose.prod.yml up -d
+	docker compose -f docker-compose.prod.yml up -d --build

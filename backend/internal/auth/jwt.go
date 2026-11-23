@@ -5,11 +5,14 @@ import (
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+	"github.com/google/uuid"
 )
 
 var (
 	ErrInvalidToken = errors.New("invalid token")
 	ErrExpiredToken = errors.New("token has expired")
+	// ErrUnauthenticated means the request carried no valid access token.
+	ErrUnauthenticated = errors.New("authentication required")
 )
 
 type Claims struct {
@@ -25,12 +28,19 @@ type JWTManager struct {
 	refreshDuration  time.Duration
 }
 
+// NewJWTManager creates a manager with the default lifetimes
+// (15 minute access tokens, 7 day refresh tokens).
 func NewJWTManager(secretKey, refreshSecretKey string) *JWTManager {
+	return NewJWTManagerWithExpiry(secretKey, refreshSecretKey, 15*time.Minute, 7*24*time.Hour)
+}
+
+// NewJWTManagerWithExpiry creates a manager with custom token lifetimes.
+func NewJWTManagerWithExpiry(secretKey, refreshSecretKey string, access, refresh time.Duration) *JWTManager {
 	return &JWTManager{
 		secretKey:        []byte(secretKey),
 		refreshSecretKey: []byte(refreshSecretKey),
-		accessDuration:   15 * time.Minute,
-		refreshDuration:  7 * 24 * time.Hour,
+		accessDuration:   access,
+		refreshDuration:  refresh,
 	}
 }
 
@@ -56,6 +66,8 @@ func (m *JWTManager) GenerateRefreshToken(userID, email string) (string, error) 
 		UserID: userID,
 		Email:  email,
 		RegisteredClaims: jwt.RegisteredClaims{
+			// A unique ID keeps two refresh tokens issued in the same second distinct.
+			ID:        uuid.NewString(),
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(m.refreshDuration)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 			NotBefore: jwt.NewNumericDate(time.Now()),

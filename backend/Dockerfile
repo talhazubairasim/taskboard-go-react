@@ -1,38 +1,24 @@
 # Build stage
-FROM golang:1.21-alpine AS builder
-
+FROM golang:1.26-alpine AS builder
 WORKDIR /app
 
-# Install build dependencies
-RUN apk add --no-cache git
-
-# Copy go mod files
 COPY go.mod go.sum ./
 RUN go mod download
 
-# Copy source code
 COPY . .
-
-# Install gqlgen and generate code
-RUN go install github.com/99designs/gqlgen@latest
-RUN gqlgen generate
-
-# Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -a -installsuffix cgo -o main cmd/server/main.go
+# GraphQL code is generated and committed (make generate), so the build is reproducible.
+RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/server ./cmd/server \
+ && CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /out/migrate ./cmd/migrate
 
 # Runtime stage
-FROM alpine:latest
-
-RUN apk --no-cache add ca-certificates tzdata
-
-WORKDIR /root/
-
-# Copy the binary from builder
-COPY --from=builder /app/main .
-COPY --from=builder /app/internal/database/migrations ./migrations
-
-# Expose port
+FROM alpine:3.19
+RUN apk --no-cache add ca-certificates tzdata wget \
+ && adduser -D -u 10001 app
+USER app
+WORKDIR /app
+COPY --from=builder /out/server /out/migrate ./
 EXPOSE 8080
-
-# Run the binary
-CMD ["./main"]
+HEALTHCHECK --interval=30s --timeout=3s --start-period=10s --retries=3 \
+  CMD wget -q -O /dev/null http://localhost:8080/health || exit 1
+# The server applies pending migrations on startup.
+CMD ["./server"]

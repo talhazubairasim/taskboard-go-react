@@ -1,135 +1,113 @@
-import { useState } from 'react';
-import { useQuery } from '@apollo/client';
-import { GET_TASKS, GET_USERS } from '../graphql/queries';
-import { TaskList } from '../components/tasks/TaskList';
-import { TaskForm } from '../components/tasks/TaskForm';
-import { Header } from '../components/layout/Header';
+import { useMemo, useState } from 'react';
 import { useAuth } from '../contexts/AuthContext';
+import { useTaskActions, useTasks } from '../hooks/useTasks';
+import { useRealtime } from '../hooks/useRealtime';
+import { useUsers } from '../hooks/useUsers';
+import { PRIORITIES, type Priority, type Task } from '../types';
+import { KanbanBoard } from '../components/tasks/KanbanBoard';
+import { TaskForm } from '../components/tasks/TaskForm';
+import { TaskAssignment } from '../components/tasks/TaskAssignment';
+import { Modal } from '../components/common/Modal';
+import { Spinner } from '../components/common/Spinner';
+import { getErrorMessage } from '../utils/errors';
+
+type Dialog = { kind: 'create' } | { kind: 'edit'; task: Task } | { kind: 'assign'; task: Task } | null;
 
 export const Dashboard = () => {
   const { user } = useAuth();
-  const [showCreateForm, setShowCreateForm] = useState(false);
-  const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const { tasks, loading, error } = useTasks();
+  const { users } = useUsers();
+  const actions = useTaskActions();
+  const { connected } = useRealtime();
 
-  const { data: tasksData, loading: tasksLoading, refetch: refetchTasks } = useQuery(GET_TASKS, {
-    variables: {
-      filter: statusFilter ? { status: statusFilter } : undefined,
-    },
-  });
+  const [dialog, setDialog] = useState<Dialog>(null);
+  const [search, setSearch] = useState('');
+  const [priority, setPriority] = useState<Priority | ''>('');
+  const [mineOnly, setMineOnly] = useState(false);
+  const [actionError, setActionError] = useState('');
 
-  const { data: usersData } = useQuery(GET_USERS);
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return tasks.filter(
+      (t) =>
+        (!q || t.title.toLowerCase().includes(q) || (t.description ?? '').toLowerCase().includes(q)) &&
+        (!priority || t.priority === priority) &&
+        (!mineOnly || t.assignedTo?.id === user?.id || t.createdBy.id === user?.id),
+    );
+  }, [tasks, search, priority, mineOnly, user]);
 
-  const handleTaskCreated = () => {
-    setShowCreateForm(false);
-    refetchTasks();
-  };
+  if (!user) return null;
+  const close = () => setDialog(null);
+  const attempt = (p: Promise<unknown>) => p.catch((err) => setActionError(getErrorMessage(err)));
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <Header />
-      
-      <main className="max-w-7xl mx-auto py-6 sm:px-6 lg:px-8">
-        <div className="px-4 py-6 sm:px-0">
-          <div className="mb-6">
-            <h1 className="text-3xl font-bold text-gray-900">
-              Welcome back, {user?.name}!
-            </h1>
-            <p className="mt-1 text-sm text-gray-600">
-              Manage your tasks and collaborate with your team
-            </p>
-          </div>
-
-          {/* Filters and Create Button */}
-          <div className="mb-6 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div className="flex gap-2">
-              <button
-                onClick={() => setStatusFilter(null)}
-                className={`px-4 py-2 rounded-md text-sm font-medium ${
-                  statusFilter === null
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                All
-              </button>
-              <button
-                onClick={() => setStatusFilter('TODO')}
-                className={`px-4 py-2 rounded-md text-sm font-medium ${
-                  statusFilter === 'TODO'
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                To Do
-              </button>
-              <button
-                onClick={() => setStatusFilter('IN_PROGRESS')}
-                className={`px-4 py-2 rounded-md text-sm font-medium ${
-                  statusFilter === 'IN_PROGRESS'
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                In Progress
-              </button>
-              <button
-                onClick={() => setStatusFilter('DONE')}
-                className={`px-4 py-2 rounded-md text-sm font-medium ${
-                  statusFilter === 'DONE'
-                    ? 'bg-indigo-600 text-white'
-                    : 'bg-white text-gray-700 border border-gray-300 hover:bg-gray-50'
-                }`}
-              >
-                Done
-              </button>
-            </div>
-
-            <button
-              onClick={() => setShowCreateForm(true)}
-              className="px-4 py-2 bg-indigo-600 text-white rounded-md text-sm font-medium hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-            >
-              + Create Task
-            </button>
-          </div>
-
-          {/* Create Task Form Modal */}
-          {showCreateForm && (
-            <div className="fixed inset-0 bg-gray-600 bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-white rounded-lg p-6 max-w-2xl w-full mx-4">
-                <div className="flex justify-between items-center mb-4">
-                  <h2 className="text-xl font-bold text-gray-900">Create New Task</h2>
-                  <button
-                    onClick={() => setShowCreateForm(false)}
-                    className="text-gray-400 hover:text-gray-600"
-                  >
-                    <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                </div>
-                <TaskForm 
-                  users={usersData?.users || []}
-                  onComplete={handleTaskCreated}
-                  onCancel={() => setShowCreateForm(false)}
-                />
-              </div>
-            </div>
-          )}
-
-          {/* Tasks List */}
-          {tasksLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
-            </div>
-          ) : (
-            <TaskList 
-              tasks={tasksData?.tasks || []} 
-              users={usersData?.users || []}
-              onTaskUpdated={refetchTasks}
-            />
-          )}
+    <div>
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Welcome back, {user.name}!</h1>
+          <p className="mt-1 flex items-center gap-2 text-sm text-gray-600">
+            <span className={`inline-block h-2 w-2 rounded-full ${connected ? 'bg-green-500' : 'bg-gray-400'}`} />
+            {connected ? 'Live updates on' : 'Live updates paused'}
+          </p>
         </div>
-      </main>
+        <button onClick={() => setDialog({ kind: 'create' })}
+          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700">
+          + Create Task
+        </button>
+      </div>
+
+      <div className="mb-4 flex flex-wrap items-center gap-3">
+        <input aria-label="Search tasks" placeholder="Search tasks" value={search} onChange={(e) => setSearch(e.target.value)}
+          className="w-56 rounded-md border border-gray-300 px-3 py-1.5 text-sm" />
+        <select aria-label="Filter by priority" value={priority} onChange={(e) => setPriority(e.target.value as Priority | '')}
+          className="rounded-md border border-gray-300 px-2 py-1.5 text-sm">
+          <option value="">All priorities</option>
+          {PRIORITIES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+        </select>
+        <label className="flex items-center gap-2 text-sm text-gray-700">
+          <input type="checkbox" checked={mineOnly} onChange={(e) => setMineOnly(e.target.checked)} />
+          Only my tasks
+        </label>
+      </div>
+
+      {(error || actionError) && (
+        <div role="alert" className="mb-4 flex justify-between rounded-md bg-red-50 p-3 text-sm text-red-800">
+          {actionError || getErrorMessage(error)}
+          {actionError && <button onClick={() => setActionError('')} aria-label="Dismiss">×</button>}
+        </div>
+      )}
+
+      {loading && tasks.length === 0 ? (
+        <Spinner />
+      ) : (
+        <KanbanBoard
+          tasks={visible}
+          currentUserId={user.id}
+          onMove={(task, status) => attempt(actions.moveTask(task, status))}
+          onEdit={(task) => setDialog({ kind: 'edit', task })}
+          onAssign={(task) => setDialog({ kind: 'assign', task })}
+          onDelete={(task) => {
+            if (window.confirm(`Delete "${task.title}"? This cannot be undone.`)) attempt(actions.deleteTask(task.id));
+          }}
+        />
+      )}
+
+      {dialog?.kind === 'create' && (
+        <Modal title="Create New Task" onClose={close}>
+          <TaskForm users={users} onSubmit={actions.createTask} onDone={close} onCancel={close} />
+        </Modal>
+      )}
+      {dialog?.kind === 'edit' && (
+        <Modal title="Edit Task" onClose={close}>
+          <TaskForm users={users} task={dialog.task} onSubmit={(input) => actions.updateTask(dialog.task.id, input)}
+            onDone={close} onCancel={close} />
+        </Modal>
+      )}
+      {dialog?.kind === 'assign' && (
+        <TaskAssignment task={dialog.task} users={users} onClose={close}
+          onAssign={(userId) => actions.assignTask(dialog.task.id, userId)}
+          onUnassign={() => actions.unassignTask(dialog.task.id)} />
+      )}
     </div>
   );
 };

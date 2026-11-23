@@ -1,134 +1,110 @@
+// Command server runs the TaskBoard API (REST + GraphQL + WebSocket subscriptions).
 package main
 
 import (
 	"context"
+	"errors"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
-	"github.com/99designs/gqlgen/graphql/handler"
-	"github.com/99designs/gqlgen/graphql/handler/extension"
-	"github.com/99designs/gqlgen/graphql/handler/transport"
-	"github.com/99designs/gqlgen/graphql/playground"
-	"github.com/gorilla/websocket"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/rs/cors"
 
-	"taskboard/graph"
 	"taskboard/internal/auth"
 	"taskboard/internal/cache"
 	"taskboard/internal/config"
+	"taskboard/internal/database"
+	"taskboard/internal/metrics"
+	"taskboard/internal/pubsub"
 	"taskboard/internal/repository"
+	"taskboard/internal/server"
+	"taskboard/internal/service"
 )
 
 func main() {
-	// Load configuration
-	cfg := config.LoadConfig()
+	cfg := config.Load()
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 
-	// Database connection
-	dbPool, err := pgxpool.New(context.Background(), cfg.DatabaseURL)
+	dbLatency := metrics.NewRecorder(4096)
+	poolCfg, err := pgxpool.ParseConfig(cfg.DatabaseURL)
 	if err != nil {
-		log.Fatalf("Unable to connect to database: %v\n", err)
+		log.Fatalf("invalid DATABASE_URL: %v", err)
 	}
-	defer dbPool.Close()
-
-	// Test database connection
-	if err := dbPool.Ping(context.Background()); err != nil {
-		log.Fatalf("Unable to ping database: %v\n", err)
+	poolCfg.ConnConfig.Tracer = metrics.QueryTracer{R: dbLatency}
+	pool, err := database.ConnectConfig(ctx, poolCfg, 30)
+	if err != nil {
+		log.Fatalf("database: %v", err)
 	}
-	log.Println("Successfully connected to database")
+	defer pool.Close()
+	log.Println("connected to database")
 
-	// Redis connection
+	n, err := database.MigrateUp(ctx, pool)
+	if err != nil {
+		log.Fatalf("migrations: %v", err)
+	}
+	log.Printf("applied %d migration(s)", n)
+
+	var c service.Cache
+	var stats *cache.Stats
 	redisCache, err := cache.NewRedisCache(cfg.RedisAddr, cfg.RedisPassword, cfg.RedisDB)
 	if err != nil {
-		log.Printf("Warning: Redis not available: %v\n", err)
-		log.Println("Continuing without cache...")
-		redisCache = nil
+		log.Printf("warning: Redis unavailable, continuing without cache: %v", err)
 	} else {
-		log.Println("Successfully connected to Redis")
+		defer redisCache.Close()
+		c, stats = redisCache, redisCache.Stats
+		log.Println("connected to Redis")
 	}
 
-	// JWT Manager
-	jwtManager := auth.NewJWTManager(cfg.JWTSecret, cfg.JWTRefreshSecret)
-	authMiddleware := auth.NewAuthMiddleware(jwtManager)
+	jwt := auth.NewJWTManagerWithExpiry(cfg.JWTSecret, cfg.JWTRefreshSecret, cfg.JWTAccessExpiry, cfg.JWTRefreshExpiry)
+	users := repository.NewUserRepository(pool)
+	tasks := repository.NewTaskRepository(pool)
+	broker := pubsub.NewBroker()
 
-	// Repositories
-	userRepo := repository.NewUserRepository(dbPool)
-	taskRepo := repository.NewTaskRepository(dbPool)
-
-	// GraphQL resolver
-	resolver := graph.NewResolver(userRepo, taskRepo, redisCache, jwtManager)
-
-	// GraphQL server
-	srv := handler.New(graph.NewExecutableSchema(graph.Config{Resolvers: resolver}))
-
-	// Add transports
-	srv.AddTransport(transport.POST{})
-	srv.AddTransport(transport.GET{})
-	srv.AddTransport(transport.Websocket{
-		KeepAlivePingInterval: 10 * time.Second,
-		Upgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool {
-				return true // Allow all origins in development
-			},
+	h := server.New(server.Deps{
+		Env:            cfg.Env,
+		AllowedOrigins: cfg.AllowedOrigins,
+		JWT:            jwt,
+		AuthSvc:        service.NewAuthService(users, jwt),
+		UserSvc:        service.NewUserService(users, c, cfg.CacheUserTTL),
+		TaskSvc:        service.NewTaskService(tasks, users, c, broker, cfg.CacheTasksTTL),
+		Broker:         broker,
+		CacheStats:     stats,
+		DBLatency:      dbLatency,
+		Ready: func(ctx context.Context) error {
+			if err := pool.Ping(ctx); err != nil {
+				return errors.New("database unavailable")
+			}
+			if redisCache != nil {
+				if err := redisCache.Ping(ctx); err != nil {
+					return errors.New("cache unavailable")
+				}
+			}
+			return nil
 		},
 	})
 
-	// Add extensions
-	srv.Use(extension.Introspection{})
-	srv.Use(extension.AutomaticPersistedQuery{
-		Cache: nil,
-	})
-
-	// CORS configuration
-	corsHandler := cors.New(cors.Options{
-		AllowedOrigins:   cfg.AllowedOrigins,
-		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"Content-Type", "Authorization"},
-		AllowCredentials: true,
-		Debug:            cfg.Env == "development",
-	})
-
-	// Routes
-	mux := http.NewServeMux()
-
-	// GraphQL playground (development only)
-	if cfg.Env == "development" {
-		mux.Handle("/", playground.Handler("GraphQL Playground", "/query"))
-		log.Println("GraphQL Playground enabled at http://localhost:" + cfg.Port)
+	srv := &http.Server{
+		Addr:              cfg.Host + ":" + cfg.Port,
+		Handler:           h,
+		ReadHeaderTimeout: 10 * time.Second,
 	}
-
-	// GraphQL endpoint with auth middleware
-	mux.Handle("/query", corsHandler.Handler(authMiddleware.Middleware(srv)))
-
-	// Health check endpoint
-	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"healthy","timestamp":"` + time.Now().Format(time.RFC3339) + `"}`))
-	})
-
-	// Readiness check endpoint
-	mux.HandleFunc("/ready", func(w http.ResponseWriter, r *http.Request) {
-		ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
-		defer cancel()
-
-		// Check database
-		if err := dbPool.Ping(ctx); err != nil {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			w.Write([]byte(`{"status":"not ready","error":"database unavailable"}`))
-			return
+	go func() {
+		log.Printf("TaskBoard API listening on http://localhost:%s (env=%s)", cfg.Port, cfg.Env)
+		if cfg.Env != "production" {
+			log.Printf("GraphQL Playground: http://localhost:%s/", cfg.Port)
 		}
+		if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatal(err)
+		}
+	}()
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status":"ready"}`))
-	})
-
-	// Start server
-	addr := ":" + cfg.Port
-	log.Printf("Server starting on http://localhost:%s", cfg.Port)
-	log.Printf("Environment: %s", cfg.Env)
-	log.Fatal(http.ListenAndServe(addr, mux))
+	<-ctx.Done()
+	log.Println("shutting down")
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	_ = srv.Shutdown(shutdownCtx)
 }

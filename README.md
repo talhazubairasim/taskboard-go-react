@@ -17,7 +17,7 @@ A modern, full-stack task management application built with Go, React, and Graph
 - 🔐 **Security** - Bcrypt password hashing, JWT tokens, CORS protection
 - 💾 **Caching** - Redis-based caching for improved performance
 - 📊 **GraphQL API** - Efficient data fetching with GraphQL
-- 🧪 **Tested** - Comprehensive test suite with 95%+ coverage
+- 🧪 **Tested** - Comprehensive test suite with 95%+ coverage (backend 97%, frontend 99%, enforced in CI)
 - 🐳 **Containerized** - Docker Compose for easy deployment
 - ☸️ **Kubernetes-Ready** - Production K8s manifests included
 - 🎨 **Modern UI** - Responsive React interface with Tailwind CSS
@@ -25,7 +25,7 @@ A modern, full-stack task management application built with Go, React, and Graph
 ## 🏗️ Tech Stack
 
 ### Backend
-- **Go 1.21+** - High-performance backend
+- **Go 1.26** - High-performance backend, with both a GraphQL API and a REST API (`/api`)
 - **gqlgen** - GraphQL server code generation
 - **PostgreSQL** - Reliable data storage with pgx driver
 - **Redis** - High-speed caching layer
@@ -47,8 +47,8 @@ A modern, full-stack task management application built with Go, React, and Graph
 ## 📋 Prerequisites
 
 - Docker & Docker Compose
-- Go 1.21+ (for local development)
-- Node.js 18+ (for local development)
+- Go 1.26+ (for local development)
+- Node.js 20+ (for local development)
 - Make (optional, for convenience commands)
 
 ## 🚀 Quick Start
@@ -315,6 +315,8 @@ VITE_GRAPHQL_WS_URL=ws://localhost:8080/query
 - **Database Query Time**: < 50ms (P95)
 - **WebSocket Latency**: < 10ms
 
+These targets are checked in CI by `TestPerformanceTargets` (`backend/tests/integration_test.go`) on a local stack; a running server reports live numbers at `GET /metrics`. See the [Implementation Guide](IMPLEMENTATION_GUIDE.md#performance).
+
 ## 🏛️ Architecture
 
 ```
@@ -386,7 +388,6 @@ This project is licensed under the MIT License.
 
 - Built with modern Go and React best practices
 - Inspired by real-world production applications
-- Designed for interview presentations and portfolio showcases
 
 ---
 

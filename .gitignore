@@ -1,0 +1,19 @@
+# dependencies
+node_modules/
+# build output
+frontend/dist/
+backend/server
+backend/migrate
+# test output
+coverage/
+frontend/coverage/
+backend/coverage*.out
+# env
+.env
+.env.*
+!.env.example
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+backend/build.log
