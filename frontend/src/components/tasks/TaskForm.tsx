@@ -1,241 +1,105 @@
-import { useState, FormEvent } from 'react';
-import { useMutation } from '@apollo/client';
-import { CREATE_TASK } from '../../graphql/mutations';
-
-interface User {
-  id: string;
-  name: string;
-  email: string;
-}
+import { useState, type FormEvent } from 'react';
+import { PRIORITIES, STATUSES, type Priority, type Task, type TaskStatus, type User } from '../../types';
+import type { TaskInput } from '../../hooks/useTasks';
+import { getErrorMessage } from '../../utils/errors';
+import { toDueDate } from '../../utils/format';
 
 interface TaskFormProps {
   users: User[];
-  onComplete: () => void;
+  /** When set, the form edits this task instead of creating one. */
+  task?: Task;
+  onSubmit: (input: TaskInput) => Promise<unknown>;
+  onDone: () => void;
   onCancel: () => void;
 }
 
-interface FormData {
-  title: string;
-  description: string;
-  status: string;
-  priority: string;
-  assignedToId: string;
-  dueDate: string;
-}
+const inputClass =
+  'block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500';
 
-export const TaskForm = ({ users, onComplete, onCancel }: TaskFormProps) => {
-  const [formData, setFormData] = useState<FormData>({
-    title: '',
-    description: '',
-    status: 'TODO',
-    priority: 'MEDIUM',
-    assignedToId: '',
-    dueDate: '',
-  });
-
-  const [errors, setErrors] = useState<Record<string, string>>({});
-
-  const [createTask, { loading }] = useMutation(CREATE_TASK, {
-    onCompleted: () => {
-      onComplete();
-    },
-    onError: (error) => {
-      setErrors({ submit: error.message });
-    },
-  });
-
-  const validate = (): boolean => {
-    const newErrors: Record<string, string> = {};
-
-    if (!formData.title.trim()) {
-      newErrors.title = 'Title is required';
-    }
-
-    setErrors(newErrors);
-    return Object.keys(newErrors).length === 0;
-  };
+export const TaskForm = ({ users, task, onSubmit, onDone, onCancel }: TaskFormProps) => {
+  const [title, setTitle] = useState(task?.title ?? '');
+  const [description, setDescription] = useState(task?.description ?? '');
+  const [status, setStatus] = useState<TaskStatus>(task?.status ?? 'TODO');
+  const [priority, setPriority] = useState<Priority>(task?.priority ?? 'MEDIUM');
+  const [assignedToId, setAssignedToId] = useState(task?.assignedTo?.id ?? '');
+  const [dueDate, setDueDate] = useState(task?.dueDate ? task.dueDate.slice(0, 10) : '');
+  const [error, setError] = useState('');
+  const [saving, setSaving] = useState(false);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    
-    if (!validate()) {
+    if (!title.trim()) {
+      setError('Title is required');
       return;
     }
-
-    const input: any = {
-      title: formData.title,
-      status: formData.status,
-      priority: formData.priority,
-    };
-
-    if (formData.description.trim()) {
-      input.description = formData.description;
-    }
-
-    if (formData.assignedToId) {
-      input.assignedToId = formData.assignedToId;
-    }
-
-    if (formData.dueDate) {
-      input.dueDate = new Date(formData.dueDate).toISOString();
-    }
-
+    setError('');
+    setSaving(true);
     try {
-      await createTask({ variables: { input } });
-    } catch (error) {
-      console.error('Error creating task:', error);
-    }
-  };
-
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
-  ) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value,
-    });
-    if (errors[e.target.name]) {
-      setErrors({
-        ...errors,
-        [e.target.name]: '',
+      await onSubmit({
+        title: title.trim(),
+        description: description.trim() || (task ? '' : null),
+        status,
+        priority,
+        // An empty string tells the API to clear the assignee when editing.
+        assignedToId: assignedToId || (task ? '' : null),
+        dueDate: toDueDate(dueDate),
       });
+      onDone();
+    } catch (err) {
+      setError(getErrorMessage(err));
+    } finally {
+      setSaving(false);
     }
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {errors.submit && (
-        <div className="rounded-md bg-red-50 p-4">
-          <div className="text-sm text-red-800">{errors.submit}</div>
+    <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+      {error && (
+        <div role="alert" className="rounded-md bg-red-50 p-3 text-sm text-red-800">
+          {error}
         </div>
       )}
-
       <div>
-        <label htmlFor="title" className="block text-sm font-medium text-gray-700">
-          Title *
-        </label>
-        <input
-          type="text"
-          name="title"
-          id="title"
-          required
-          value={formData.title}
-          onChange={handleChange}
-          className={`mt-1 block w-full rounded-md shadow-sm sm:text-sm ${
-            errors.title
-              ? 'border-red-300 focus:border-red-500 focus:ring-red-500'
-              : 'border-gray-300 focus:border-indigo-500 focus:ring-indigo-500'
-          }`}
-          placeholder="Enter task title"
-        />
-        {errors.title && (
-          <p className="mt-1 text-sm text-red-600">{errors.title}</p>
-        )}
+        <label htmlFor="task-title" className="mb-1 block text-sm font-medium text-gray-700">Title</label>
+        <input id="task-title" className={inputClass} value={title} onChange={(e) => setTitle(e.target.value)} maxLength={500} />
       </div>
-
       <div>
-        <label htmlFor="description" className="block text-sm font-medium text-gray-700">
-          Description
-        </label>
-        <textarea
-          name="description"
-          id="description"
-          rows={3}
-          value={formData.description}
-          onChange={handleChange}
-          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-          placeholder="Enter task description"
-        />
+        <label htmlFor="task-description" className="mb-1 block text-sm font-medium text-gray-700">Description</label>
+        <textarea id="task-description" rows={3} className={inputClass} value={description}
+          onChange={(e) => setDescription(e.target.value)} />
       </div>
-
       <div className="grid grid-cols-2 gap-4">
         <div>
-          <label htmlFor="status" className="block text-sm font-medium text-gray-700">
-            Status
-          </label>
-          <select
-            name="status"
-            id="status"
-            value={formData.status}
-            onChange={handleChange}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-          >
-            <option value="TODO">To Do</option>
-            <option value="IN_PROGRESS">In Progress</option>
-            <option value="REVIEW">Review</option>
-            <option value="DONE">Done</option>
+          <label htmlFor="task-status" className="mb-1 block text-sm font-medium text-gray-700">Status</label>
+          <select id="task-status" className={inputClass} value={status} onChange={(e) => setStatus(e.target.value as TaskStatus)}>
+            {STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
           </select>
         </div>
-
         <div>
-          <label htmlFor="priority" className="block text-sm font-medium text-gray-700">
-            Priority
-          </label>
-          <select
-            name="priority"
-            id="priority"
-            value={formData.priority}
-            onChange={handleChange}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-          >
-            <option value="LOW">Low</option>
-            <option value="MEDIUM">Medium</option>
-            <option value="HIGH">High</option>
-            <option value="URGENT">Urgent</option>
+          <label htmlFor="task-priority" className="mb-1 block text-sm font-medium text-gray-700">Priority</label>
+          <select id="task-priority" className={inputClass} value={priority} onChange={(e) => setPriority(e.target.value as Priority)}>
+            {PRIORITIES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
           </select>
         </div>
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
         <div>
-          <label htmlFor="assignedToId" className="block text-sm font-medium text-gray-700">
-            Assign To
-          </label>
-          <select
-            name="assignedToId"
-            id="assignedToId"
-            value={formData.assignedToId}
-            onChange={handleChange}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-          >
+          <label htmlFor="task-assignee" className="mb-1 block text-sm font-medium text-gray-700">Assignee</label>
+          <select id="task-assignee" className={inputClass} value={assignedToId} onChange={(e) => setAssignedToId(e.target.value)}>
             <option value="">Unassigned</option>
-            {users.map((user) => (
-              <option key={user.id} value={user.id}>
-                {user.name}
-              </option>
-            ))}
+            {users.map((u) => <option key={u.id} value={u.id}>{u.name}</option>)}
           </select>
         </div>
-
         <div>
-          <label htmlFor="dueDate" className="block text-sm font-medium text-gray-700">
-            Due Date
-          </label>
-          <input
-            type="date"
-            name="dueDate"
-            id="dueDate"
-            value={formData.dueDate}
-            onChange={handleChange}
-            className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-indigo-500 focus:ring-indigo-500 sm:text-sm"
-          />
+          <label htmlFor="task-due" className="mb-1 block text-sm font-medium text-gray-700">Due date</label>
+          <input id="task-due" type="date" className={inputClass} value={dueDate} onChange={(e) => setDueDate(e.target.value)} />
         </div>
       </div>
-
-      <div className="flex justify-end gap-3 pt-4">
-        <button
-          type="button"
-          onClick={onCancel}
-          className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-        >
+      <div className="flex justify-end gap-2 pt-2">
+        <button type="button" onClick={onCancel} className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">
           Cancel
         </button>
-        <button
-          type="submit"
-          disabled={loading}
-          className="px-4 py-2 text-sm font-medium text-white bg-indigo-600 border border-transparent rounded-md hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {loading ? 'Creating...' : 'Create Task'}
+        <button type="submit" disabled={saving}
+          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
+          {saving ? 'Saving...' : task ? 'Save changes' : 'Create task'}
         </button>
       </div>
     </form>

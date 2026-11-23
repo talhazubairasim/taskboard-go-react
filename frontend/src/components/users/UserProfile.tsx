@@ -1,353 +1,70 @@
-import React, { useState, useEffect } from 'react';
-import {
-  Box,
-  Paper,
-  Typography,
-  Avatar,
-  Button,
-  Grid,
-  TextField,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Chip,
-  Divider,
-  Alert,
-  CircularProgress,
-  Card,
-  CardContent,
-  List,
-  ListItem,
-  ListItemText,
-  IconButton,
-} from '@mui/material';
-import {
-  Edit as EditIcon,
-  Save as SaveIcon,
-  Cancel as CancelIcon,
-  Email as EmailIcon,
-  CalendarToday as CalendarIcon,
-  Badge as RoleIcon,
-} from '@mui/icons-material';
-import { User } from '../../types/user';
+import { useState, type FormEvent } from 'react';
+import { useMutation } from '@apollo/client';
+import { UPDATE_PROFILE } from '../../graphql/mutations';
+import { useAuth } from '../../contexts/AuthContext';
+import type { User } from '../../types';
+import { Avatar } from '../common/Avatar';
+import { getErrorMessage } from '../../utils/errors';
 
-interface UserProfileProps {
-  user: User;
-  onUpdateUser: (userData: Partial<User>) => Promise<void>;
-  loading?: boolean;
-  isEditable?: boolean;
-}
+const inputClass =
+  'block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none focus:ring-indigo-500';
 
-const UserProfile: React.FC<UserProfileProps> = ({
-  user,
-  onUpdateUser,
-  loading = false,
-  isEditable = false,
-}) => {
-  const [isEditing, setIsEditing] = useState(false);
-  const [editedUser, setEditedUser] = useState<Partial<User>>(user);
-  const [saveError, setSaveError] = useState<string>('');
-  const [saveSuccess, setSaveSuccess] = useState(false);
+/** Lets the signed-in user change their name and avatar. */
+export const UserProfile = () => {
+  const { user, updateUser } = useAuth();
+  const [name, setName] = useState(user?.name ?? '');
+  const [avatar, setAvatar] = useState(user?.avatar ?? '');
+  const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
+  const [mutate, { loading }] = useMutation<{ updateProfile: User }>(UPDATE_PROFILE);
 
-  useEffect(() => {
-    setEditedUser(user);
-  }, [user]);
+  if (!user) return null;
 
-  const handleEditToggle = () => {
-    if (isEditing) {
-      // Cancel editing
-      setEditedUser(user);
-      setSaveError('');
-      setSaveSuccess(false);
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!name.trim()) {
+      setMessage({ ok: false, text: 'Name is required' });
+      return;
     }
-    setIsEditing(!isEditing);
-  };
-
-  const handleSave = async () => {
     try {
-      setSaveError('');
-      await onUpdateUser(editedUser);
-      setSaveSuccess(true);
-      setIsEditing(false);
-      setTimeout(() => setSaveSuccess(false), 3000);
-    } catch (error) {
-      setSaveError(error instanceof Error ? error.message : 'Failed to update user');
+      const { data } = await mutate({ variables: { name: name.trim(), avatar: avatar.trim() } });
+      if (data) updateUser({ ...user, ...data.updateProfile });
+      setMessage({ ok: true, text: 'Profile saved' });
+    } catch (err) {
+      setMessage({ ok: false, text: getErrorMessage(err) });
     }
-  };
-
-  const handleFieldChange = (field: keyof User, value: any) => {
-    setEditedUser(prev => ({
-      ...prev,
-      [field]: value
-    }));
-  };
-
-  const getRoleColor = (role: string) => {
-    switch (role.toLowerCase()) {
-      case 'admin':
-        return 'error';
-      case 'manager':
-        return 'warning';
-      case 'user':
-        return 'primary';
-      default:
-        return 'default';
-    }
-  };
-
-  const getStatusColor = (isActive: boolean) => {
-    return isActive ? 'success' : 'default';
   };
 
   return (
-    <Box>
-      {/* Header with Actions */}
-      <Box display="flex" justifyContent="space-between" alignItems="center" mb={3}>
-        <Typography variant="h4" component="h1">
-          User Profile
-        </Typography>
-        
-        {isEditable && (
-          <Box>
-            {isEditing ? (
-              <>
-                <Button
-                  startIcon={<CancelIcon />}
-                  onClick={handleEditToggle}
-                  sx={{ mr: 1 }}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  startIcon={<SaveIcon />}
-                  variant="contained"
-                  onClick={handleSave}
-                  disabled={loading}
-                >
-                  {loading ? <CircularProgress size={24} /> : 'Save Changes'}
-                </Button>
-              </>
-            ) : (
-              <Button
-                startIcon={<EditIcon />}
-                variant="outlined"
-                onClick={handleEditToggle}
-              >
-                Edit Profile
-              </Button>
-            )}
-          </Box>
+    <div className="max-w-lg rounded-lg border border-gray-200 bg-white p-6">
+      <div className="mb-6 flex items-center gap-4">
+        <Avatar name={name || user.name} src={avatar.trim() || null} size="lg" />
+        <div>
+          <p className="text-lg font-semibold text-gray-900">{user.name}</p>
+          <p className="text-sm text-gray-500">{user.email}</p>
+        </div>
+      </div>
+      <form onSubmit={handleSubmit} className="space-y-4" noValidate>
+        {message && (
+          <div role={message.ok ? 'status' : 'alert'}
+            className={`rounded-md p-3 text-sm ${message.ok ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}>
+            {message.text}
+          </div>
         )}
-      </Box>
-
-      {/* Alerts */}
-      {saveError && (
-        <Alert severity="error" sx={{ mb: 2 }}>
-          {saveError}
-        </Alert>
-      )}
-      
-      {saveSuccess && (
-        <Alert severity="success" sx={{ mb: 2 }}>
-          Profile updated successfully!
-        </Alert>
-      )}
-
-      <Grid container spacing={3}>
-        {/* Left Column - Profile Information */}
-        <Grid item xs={12} md={4}>
-          <Paper sx={{ p: 3, textAlign: 'center' }}>
-            <Avatar
-              src={user.avatar}
-              sx={{
-                width: 120,
-                height: 120,
-                mx: 'auto',
-                mb: 2,
-                border: 4,
-                borderColor: 'background.paper',
-                boxShadow: 1,
-              }}
-            >
-              {user.name.charAt(0).toUpperCase()}
-            </Avatar>
-            
-            <Typography variant="h5" gutterBottom>
-              {user.name}
-            </Typography>
-            
-            <Box mb={2}>
-              <Chip
-                label={user.role}
-                color={getRoleColor(user.role)}
-                sx={{ mr: 1 }}
-              />
-              <Chip
-                label={user.isActive ? 'Active' : 'Inactive'}
-                color={getStatusColor(user.isActive)}
-                variant={user.isActive ? 'filled' : 'outlined'}
-              />
-            </Box>
-
-            <Divider sx={{ my: 2 }} />
-
-            {/* Quick Stats */}
-            <Card variant="outlined" sx={{ mb: 2 }}>
-              <CardContent>
-                <Typography variant="h6" gutterBottom>
-                  Quick Stats
-                </Typography>
-                <List dense>
-                  <ListItem>
-                    <ListItemText 
-                      primary="Member since" 
-                      secondary={new Date(user.createdAt).toLocaleDateString()}
-                    />
-                  </ListItem>
-                  <ListItem>
-                    <ListItemText 
-                      primary="Last updated" 
-                      secondary={new Date(user.updatedAt).toLocaleDateString()}
-                    />
-                  </ListItem>
-                </List>
-              </CardContent>
-            </Card>
-          </Paper>
-        </Grid>
-
-        {/* Right Column - Details */}
-        <Grid item xs={12} md={8}>
-          <Paper sx={{ p: 3 }}>
-            <Typography variant="h6" gutterBottom>
-              Personal Information
-            </Typography>
-            
-            <Grid container spacing={2}>
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Full Name"
-                  value={isEditing ? editedUser.name : user.name}
-                  onChange={(e) => handleFieldChange('name', e.target.value)}
-                  disabled={!isEditing}
-                  margin="normal"
-                />
-              </Grid>
-              
-              <Grid item xs={12} sm={6}>
-                <TextField
-                  fullWidth
-                  label="Email"
-                  type="email"
-                  value={isEditing ? editedUser.email : user.email}
-                  onChange={(e) => handleFieldChange('email', e.target.value)}
-                  disabled={!isEditing}
-                  margin="normal"
-                  InputProps={{
-                    startAdornment: <EmailIcon sx={{ mr: 1, color: 'text.secondary' }} />,
-                  }}
-                />
-              </Grid>
-
-              <Grid item xs={12} sm={6}>
-                <FormControl fullWidth margin="normal" disabled={!isEditing}>
-                  <InputLabel>Role</InputLabel>
-                  <Select
-                    value={isEditing ? editedUser.role : user.role}
-                    label="Role"
-                    onChange={(e) => handleFieldChange('role', e.target.value)}
-                    startAdornment={<RoleIcon sx={{ mr: 1, color: 'text.secondary' }} />}
-                  >
-                    <MenuItem value="user">User</MenuItem>
-                    <MenuItem value="manager">Manager</MenuItem>
-                    <MenuItem value="admin">Admin</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-
-              <Grid item xs={12} sm={6}>
-                <FormControl fullWidth margin="normal" disabled={!isEditing}>
-                  <InputLabel>Status</InputLabel>
-                  <Select
-                    value={isEditing ? editedUser.isActive : user.isActive}
-                    label="Status"
-                    onChange={(e) => handleFieldChange('isActive', e.target.value)}
-                  >
-                    <MenuItem value="true">Active</MenuItem>
-                    <MenuItem value="false">Inactive</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
-
-              {!isEditing && (
-                <>
-                  <Grid item xs={12} sm={6}>
-                    <TextField
-                      fullWidth
-                      label="Created At"
-                      value={new Date(user.createdAt).toLocaleString()}
-                      disabled
-                      margin="normal"
-                      InputProps={{
-                        startAdornment: <CalendarIcon sx={{ mr: 1, color: 'text.secondary' }} />,
-                      }}
-                    />
-                  </Grid>
-                  
-                  <Grid item xs={12} sm={6}>
-                    <TextField
-                      fullWidth
-                      label="Updated At"
-                      value={new Date(user.updatedAt).toLocaleString()}
-                      disabled
-                      margin="normal"
-                      InputProps={{
-                        startAdornment: <CalendarIcon sx={{ mr: 1, color: 'text.secondary' }} />,
-                      }}
-                    />
-                  </Grid>
-                </>
-              )}
-            </Grid>
-
-            {/* Additional Information Section */}
-            {!isEditing && user.department && (
-              <>
-                <Divider sx={{ my: 3 }} />
-                <Typography variant="h6" gutterBottom>
-                  Additional Information
-                </Typography>
-                <Grid container spacing={2}>
-                  <Grid item xs={12} sm={6}>
-                    <TextField
-                      fullWidth
-                      label="Department"
-                      value={user.department}
-                      disabled
-                      margin="normal"
-                    />
-                  </Grid>
-                  {user.position && (
-                    <Grid item xs={12} sm={6}>
-                      <TextField
-                        fullWidth
-                        label="Position"
-                        value={user.position}
-                        disabled
-                        margin="normal"
-                      />
-                    </Grid>
-                  )}
-                </Grid>
-              </>
-            )}
-          </Paper>
-        </Grid>
-      </Grid>
-    </Box>
+        <div>
+          <label htmlFor="profile-name" className="mb-1 block text-sm font-medium text-gray-700">Name</label>
+          <input id="profile-name" className={inputClass} value={name} onChange={(e) => setName(e.target.value)} />
+        </div>
+        <div>
+          <label htmlFor="profile-avatar" className="mb-1 block text-sm font-medium text-gray-700">Avatar URL</label>
+          <input id="profile-avatar" type="url" placeholder="https://..." className={inputClass} value={avatar}
+            onChange={(e) => setAvatar(e.target.value)} />
+          <p className="mt-1 text-xs text-gray-500">Leave empty to use your initial.</p>
+        </div>
+        <button type="submit" disabled={loading}
+          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
+          {loading ? 'Saving...' : 'Save profile'}
+        </button>
+      </form>
+    </div>
   );
 };
-
-export default UserProfile;

@@ -2,204 +2,154 @@ package repository
 
 import (
 	"context"
-	"database/sql"
+	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/google/uuid"
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+
 	"taskboard/internal/models"
 )
 
+const taskColumns = `id, title, description, status, priority, created_by_id,
+	assigned_to_id, due_date, created_at, updated_at`
+
+// TaskRepository stores tasks.
 type TaskRepository struct {
 	db *pgxpool.Pool
 }
 
+// NewTaskRepository builds a TaskRepository.
 func NewTaskRepository(db *pgxpool.Pool) *TaskRepository {
 	return &TaskRepository{db: db}
 }
 
+func scanTask(row pgx.Row) (*models.Task, error) {
+	var t models.Task
+	err := row.Scan(&t.ID, &t.Title, &t.Description, &t.Status, &t.Priority,
+		&t.CreatedByID, &t.AssignedToID, &t.DueDate, &t.CreatedAt, &t.UpdatedAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, translate(err)
+	}
+	return &t, nil
+}
+
+// Create inserts a task, assigning a new ID.
 func (r *TaskRepository) Create(ctx context.Context, task *models.Task) (*models.Task, error) {
-	task.ID = uuid.New().String()
-	
-	query := `
-		INSERT INTO tasks (id, title, description, status, priority, created_by_id, assigned_to_id, due_date)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-		RETURNING created_at, updated_at
-	`
-	
-	err := r.db.QueryRow(ctx, query,
+	task.ID = uuid.NewString()
+	err := r.db.QueryRow(ctx,
+		`INSERT INTO tasks (id, title, description, status, priority, created_by_id, assigned_to_id, due_date)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING created_at, updated_at`,
 		task.ID, task.Title, task.Description, task.Status, task.Priority,
 		task.CreatedByID, task.AssignedToID, task.DueDate,
 	).Scan(&task.CreatedAt, &task.UpdatedAt)
-	
 	if err != nil {
-		return nil, fmt.Errorf("failed to create task: %w", err)
+		return nil, fmt.Errorf("create task: %w", translate(err))
 	}
-	
 	return task, nil
 }
 
+// GetByID loads one task.
 func (r *TaskRepository) GetByID(ctx context.Context, id string) (*models.Task, error) {
-	var task models.Task
-	
-	query := `
-		SELECT id, title, description, status, priority, created_by_id, 
-		       assigned_to_id, due_date, created_at, updated_at
-		FROM tasks
-		WHERE id = $1
-	`
-	
-	err := r.db.QueryRow(ctx, query, id).Scan(
-		&task.ID, &task.Title, &task.Description, &task.Status, &task.Priority,
-		&task.CreatedByID, &task.AssignedToID, &task.DueDate,
-		&task.CreatedAt, &task.UpdatedAt,
-	)
-	
-	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("task not found")
-	}
-	if err != nil {
-		return nil, fmt.Errorf("failed to get task: %w", err)
-	}
-	
-	return &task, nil
+	return scanTask(r.db.QueryRow(ctx, `SELECT `+taskColumns+` FROM tasks WHERE id = $1`, id))
 }
 
-func (r *TaskRepository) List(ctx context.Context, filter map[string]interface{}) ([]*models.Task, error) {
-	query := `
-		SELECT id, title, description, status, priority, created_by_id,
-		       assigned_to_id, due_date, created_at, updated_at
-		FROM tasks
-		WHERE 1=1
-	`
-	
-	args := []interface{}{}
-	argPos := 1
-	
-	if status, ok := filter["status"].(string); ok && status != "" {
-		query += fmt.Sprintf(" AND status = $%d", argPos)
-		args = append(args, status)
-		argPos++
+// List returns tasks matching the filter, newest first.
+func (r *TaskRepository) List(ctx context.Context, f models.TaskFilter) ([]*models.Task, error) {
+	var where []string
+	var args []interface{}
+	add := func(col, val string) {
+		if val != "" {
+			args = append(args, val)
+			where = append(where, fmt.Sprintf("%s = $%d", col, len(args)))
+		}
 	}
-	
-	if priority, ok := filter["priority"].(string); ok && priority != "" {
-		query += fmt.Sprintf(" AND priority = $%d", argPos)
-		args = append(args, priority)
-		argPos++
+	add("status", f.Status)
+	add("priority", f.Priority)
+	add("assigned_to_id", f.AssignedToID)
+	add("created_by_id", f.CreatedByID)
+
+	query := `SELECT ` + taskColumns + ` FROM tasks`
+	if len(where) > 0 {
+		query += " WHERE " + strings.Join(where, " AND ")
 	}
-	
-	if assignedToID, ok := filter["assigned_to_id"].(string); ok && assignedToID != "" {
-		query += fmt.Sprintf(" AND assigned_to_id = $%d", argPos)
-		args = append(args, assignedToID)
-		argPos++
-	}
-	
-	if createdByID, ok := filter["created_by_id"].(string); ok && createdByID != "" {
-		query += fmt.Sprintf(" AND created_by_id = $%d", argPos)
-		args = append(args, createdByID)
-		argPos++
-	}
-	
-	query += " ORDER BY created_at DESC"
-	
+	query += " ORDER BY created_at DESC, id"
+
 	rows, err := r.db.Query(ctx, query, args...)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list tasks: %w", err)
+		return nil, fmt.Errorf("list tasks: %w", translate(err))
 	}
 	defer rows.Close()
-	
-	var tasks []*models.Task
+	tasks := []*models.Task{}
 	for rows.Next() {
-		var task models.Task
-		err := rows.Scan(
-			&task.ID, &task.Title, &task.Description, &task.Status, &task.Priority,
-			&task.CreatedByID, &task.AssignedToID, &task.DueDate,
-			&task.CreatedAt, &task.UpdatedAt,
-		)
+		t, err := scanTask(rows)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan task: %w", err)
+			return nil, err
 		}
-		tasks = append(tasks, &task)
+		tasks = append(tasks, t)
 	}
-	
+	if err := rows.Err(); err != nil {
+		return nil, translate(err)
+	}
 	return tasks, nil
 }
 
-func (r *TaskRepository) Update(ctx context.Context, id string, updates map[string]interface{}) (*models.Task, error) {
-	query := "UPDATE tasks SET updated_at = NOW()"
-	args := []interface{}{}
-	argPos := 1
-	
-	if title, ok := updates["title"].(string); ok {
-		query += fmt.Sprintf(", title = $%d", argPos)
-		args = append(args, title)
-		argPos++
+// Update applies a partial update and returns the updated task.
+func (r *TaskRepository) Update(ctx context.Context, id string, u models.TaskUpdate) (*models.Task, error) {
+	sets := []string{}
+	args := []interface{}{id}
+	set := func(col string, val interface{}) {
+		args = append(args, val)
+		sets = append(sets, fmt.Sprintf("%s = $%d", col, len(args)))
 	}
-	
-	if description, ok := updates["description"]; ok {
-		query += fmt.Sprintf(", description = $%d", argPos)
-		args = append(args, description)
-		argPos++
+	if u.Title != nil {
+		set("title", *u.Title)
 	}
-	
-	if status, ok := updates["status"].(string); ok {
-		query += fmt.Sprintf(", status = $%d", argPos)
-		args = append(args, status)
-		argPos++
+	if u.ClearDescription {
+		sets = append(sets, "description = NULL")
+	} else if u.Description != nil {
+		set("description", *u.Description)
 	}
-	
-	if priority, ok := updates["priority"].(string); ok {
-		query += fmt.Sprintf(", priority = $%d", argPos)
-		args = append(args, priority)
-		argPos++
+	if u.Status != nil {
+		set("status", *u.Status)
 	}
-	
-	if assignedToID, ok := updates["assigned_to_id"]; ok {
-		query += fmt.Sprintf(", assigned_to_id = $%d", argPos)
-		args = append(args, assignedToID)
-		argPos++
+	if u.Priority != nil {
+		set("priority", *u.Priority)
 	}
-	
-	if dueDate, ok := updates["due_date"]; ok {
-		query += fmt.Sprintf(", due_date = $%d", argPos)
-		args = append(args, dueDate)
-		argPos++
+	if u.ClearAssignee {
+		sets = append(sets, "assigned_to_id = NULL")
+	} else if u.AssignedToID != nil {
+		set("assigned_to_id", *u.AssignedToID)
 	}
-	
-	query += fmt.Sprintf(" WHERE id = $%d", argPos)
-	args = append(args, id)
-	
-	_, err := r.db.Exec(ctx, query, args...)
+	if u.ClearDueDate {
+		sets = append(sets, "due_date = NULL")
+	} else if u.DueDate != nil {
+		set("due_date", *u.DueDate)
+	}
+	if len(sets) == 0 {
+		return r.GetByID(ctx, id)
+	}
+	query := `UPDATE tasks SET ` + strings.Join(sets, ", ") + ` WHERE id = $1 RETURNING ` + taskColumns
+	t, err := scanTask(r.db.QueryRow(ctx, query, args...))
 	if err != nil {
-		return nil, fmt.Errorf("failed to update task: %w", err)
+		return nil, err
 	}
-	
-	return r.GetByID(ctx, id)
+	return t, nil
 }
 
+// Delete removes a task.
 func (r *TaskRepository) Delete(ctx context.Context, id string) error {
-	query := "DELETE FROM tasks WHERE id = $1"
-	
-	result, err := r.db.Exec(ctx, query, id)
+	res, err := r.db.Exec(ctx, `DELETE FROM tasks WHERE id = $1`, id)
 	if err != nil {
-		return fmt.Errorf("failed to delete task: %w", err)
+		return translate(err)
 	}
-	
-	if result.RowsAffected() == 0 {
-		return fmt.Errorf("task not found")
+	if res.RowsAffected() == 0 {
+		return ErrNotFound
 	}
-	
 	return nil
-}
-
-func (r *TaskRepository) GetByUserID(ctx context.Context, userID string) ([]*models.Task, error) {
-	return r.List(ctx, map[string]interface{}{
-		"created_by_id": userID,
-	})
-}
-
-func (r *TaskRepository) GetAssignedToUser(ctx context.Context, userID string) ([]*models.Task, error) {
-	return r.List(ctx, map[string]interface{}{
-		"assigned_to_id": userID,
-	})
 }

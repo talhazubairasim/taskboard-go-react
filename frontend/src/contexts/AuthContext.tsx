@@ -1,97 +1,65 @@
-import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
-import { useMutation } from '@apollo/client';
-import { REFRESH_TOKEN } from '../graphql/mutations';
-
-interface User {
-  id: string;
-  email: string;
-  name: string;
-  avatar?: string;
-}
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useApolloClient } from '@apollo/client';
+import type { User } from '../types';
+import { tokens } from '../utils/tokens';
+import { LOGOUT_EVENT, refreshAccessToken } from '../utils/apollo-client';
 
 interface AuthContextType {
   user: User | null;
+  isAuthenticated: boolean;
   login: (token: string, refreshToken: string, user: User) => void;
   logout: () => void;
-  isAuthenticated: boolean;
-  loading: boolean;
+  updateUser: (user: User) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-export const AuthProvider = ({ children }: { children: ReactNode }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+/** Access tokens live 15 minutes; refresh a little before that so WebSocket reconnects stay authorised. */
+export const REFRESH_INTERVAL_MS = 14 * 60 * 1000;
 
-  const [refreshTokenMutation] = useMutation(REFRESH_TOKEN);
+export const AuthProvider = ({ children }: { children: ReactNode }) => {
+  const client = useApolloClient();
+  const [user, setUser] = useState<User | null>(() => (tokens.access() ? tokens.user() : null));
+
+  const logout = useCallback(() => {
+    tokens.clear();
+    setUser(null);
+    void client.clearStore();
+  }, [client]);
+
+  const login = useCallback((token: string, refreshToken: string, u: User) => {
+    tokens.save(token, refreshToken, u);
+    setUser(u);
+  }, []);
+
+  const updateUser = useCallback((u: User) => {
+    tokens.saveUser(u);
+    setUser(u);
+  }, []);
+
+  // The Apollo client fires LOGOUT_EVENT when a refresh fails.
+  useEffect(() => {
+    const onLogout = () => setUser(null);
+    window.addEventListener(LOGOUT_EVENT, onLogout);
+    return () => window.removeEventListener(LOGOUT_EVENT, onLogout);
+  }, []);
 
   useEffect(() => {
-    // Check for stored auth on mount
-    const storedUser = localStorage.getItem('user');
-    const accessToken = localStorage.getItem('accessToken');
+    if (!user) return;
+    const id = setInterval(() => void refreshAccessToken(), REFRESH_INTERVAL_MS);
+    return () => clearInterval(id);
+  }, [user]);
 
-    if (storedUser && accessToken) {
-      try {
-        setUser(JSON.parse(storedUser));
-      } catch (error) {
-        console.error('Failed to parse stored user:', error);
-        logout();
-      }
-    }
-    setLoading(false);
-
-    // Set up token refresh interval (every 14 minutes, tokens expire in 15)
-    const refreshInterval = setInterval(async () => {
-      const refreshToken = localStorage.getItem('refreshToken');
-      if (refreshToken) {
-        try {
-          const { data } = await refreshTokenMutation({
-            variables: { refreshToken },
-          });
-          if (data?.refreshToken) {
-            localStorage.setItem('accessToken', data.refreshToken.token);
-            localStorage.setItem('refreshToken', data.refreshToken.refreshToken);
-          }
-        } catch (error) {
-          console.error('Token refresh failed:', error);
-          logout();
-        }
-      }
-    }, 14 * 60 * 1000); // 14 minutes
-
-    return () => clearInterval(refreshInterval);
-  }, [refreshTokenMutation]);
-
-  const login = (token: string, refreshToken: string, userData: User) => {
-    localStorage.setItem('accessToken', token);
-    localStorage.setItem('refreshToken', refreshToken);
-    localStorage.setItem('user', JSON.stringify(userData));
-    setUser(userData);
-  };
-
-  const logout = () => {
-    localStorage.removeItem('accessToken');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('user');
-    setUser(null);
-    window.location.href = '/login';
-  };
-
-  const value = {
-    user,
-    login,
-    logout,
-    isAuthenticated: !!user,
-    loading,
-  };
-
+  const value = useMemo(
+    () => ({ user, isAuthenticated: !!user, login, logout, updateUser }),
+    [user, login, logout, updateUser],
+  );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
 
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
+  const ctx = useContext(AuthContext);
+  if (!ctx) throw new Error('useAuth must be used within an AuthProvider');
+  return ctx;
 };

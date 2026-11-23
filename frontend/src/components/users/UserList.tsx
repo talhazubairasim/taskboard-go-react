@@ -1,250 +1,65 @@
-import React, { useState, useEffect } from 'react';
-import {
-  Box,
-  Paper,
-  Table,
-  TableBody,
-  TableCell,
-  TableContainer,
-  TableHead,
-  TableRow,
-  TablePagination,
-  TextField,
-  IconButton,
-  Chip,
-  Avatar,
-  Typography,
-  CircularProgress,
-  Alert,
-  Tooltip,
-} from '@mui/material';
-import {
-  Edit as EditIcon,
-  Delete as DeleteIcon,
-  Visibility as ViewIcon,
-} from '@mui/icons-material';
-import { User } from '../../types/user';
+import { useMemo, useState } from 'react';
+import type { Task, User } from '../../types';
+import { Avatar } from '../common/Avatar';
 
 interface UserListProps {
   users: User[];
-  loading?: boolean;
-  error?: string;
-  onEditUser: (user: User) => void;
-  onDeleteUser: (userId: number) => void;
-  onViewUser: (user: User) => void;
+  tasks: Task[];
 }
 
-const UserList: React.FC<UserListProps> = ({
-  users,
-  loading = false,
-  error,
-  onEditUser,
-  onDeleteUser,
-  onViewUser,
-}) => {
-  const [page, setPage] = useState(0);
-  const [rowsPerPage, setRowsPerPage] = useState(10);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [filteredUsers, setFilteredUsers] = useState<User[]>([]);
+/** The team: everyone on the board with how many open tasks they hold. */
+export const UserList = ({ users, tasks }: UserListProps) => {
+  const [search, setSearch] = useState('');
 
-  useEffect(() => {
-    const filtered = users.filter(user =>
-      user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.role.toLowerCase().includes(searchTerm.toLowerCase())
-    );
-    setFilteredUsers(filtered);
-  }, [users, searchTerm]);
-
-  const handleChangePage = (event: unknown, newPage: number) => {
-    setPage(newPage);
-  };
-
-  const handleChangeRowsPerPage = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setRowsPerPage(parseInt(event.target.value, 10));
-    setPage(0);
-  };
-
-  const getRoleColor = (role: string) => {
-    switch (role.toLowerCase()) {
-      case 'admin':
-        return 'error';
-      case 'manager':
-        return 'warning';
-      case 'user':
-        return 'primary';
-      default:
-        return 'default';
+  const counts = useMemo(() => {
+    const open: Record<string, number> = {};
+    const done: Record<string, number> = {};
+    for (const t of tasks) {
+      if (!t.assignedTo) continue;
+      const bucket = t.status === 'DONE' ? done : open;
+      bucket[t.assignedTo.id] = (bucket[t.assignedTo.id] ?? 0) + 1;
     }
-  };
+    return { open, done };
+  }, [tasks]);
 
-  const paginatedUsers = filteredUsers.slice(
-    page * rowsPerPage,
-    page * rowsPerPage + rowsPerPage
-  );
-
-  if (loading) {
-    return (
-      <Box display="flex" justifyContent="center" p={3}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-
-  if (error) {
-    return (
-      <Alert severity="error" sx={{ m: 2 }}>
-        {error}
-      </Alert>
-    );
-  }
+  const q = search.trim().toLowerCase();
+  const visible = users.filter((u) => !q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q));
 
   return (
-    <Paper sx={{ width: '100%', overflow: 'hidden' }}>
-      {/* Search Box */}
-      <Box p={2}>
-        <TextField
-          fullWidth
-          variant="outlined"
-          placeholder="Search users by name, email, or role..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          sx={{ mb: 2 }}
-        />
-        
-        <Typography variant="body2" color="text.secondary">
-          Showing {filteredUsers.length} of {users.length} users
-        </Typography>
-      </Box>
-
-      <TableContainer>
-        <Table stickyHeader aria-label="user table">
-          <TableHead>
-            <TableRow>
-              <TableCell>User</TableCell>
-              <TableCell>Email</TableCell>
-              <TableCell>Role</TableCell>
-              <TableCell>Status</TableCell>
-              <TableCell>Joined</TableCell>
-              <TableCell align="center">Actions</TableCell>
-            </TableRow>
-          </TableHead>
-          <TableBody>
-            {paginatedUsers.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={6} align="center" sx={{ py: 3 }}>
-                  <Typography variant="body1" color="text.secondary">
-                    {searchTerm ? 'No users found matching your search.' : 'No users available.'}
-                  </Typography>
-                </TableCell>
-              </TableRow>
-            ) : (
-              paginatedUsers.map((user) => (
-                <TableRow 
-                  key={user.id}
-                  hover
-                  sx={{ '&:last-child td, &:last-child th': { border: 0 } }}
-                >
-                  <TableCell>
-                    <Box display="flex" alignItems="center">
-                      <Avatar 
-                        src={user.avatar} 
-                        sx={{ mr: 2 }}
-                        alt={user.name}
-                      >
-                        {user.name.charAt(0)}
-                      </Avatar>
-                      <Box>
-                        <Typography variant="body1" fontWeight="medium">
-                          {user.name}
-                        </Typography>
-                        <Typography variant="caption" color="text.secondary">
-                          ID: {user.id}
-                        </Typography>
-                      </Box>
-                    </Box>
-                  </TableCell>
-                  
-                  <TableCell>
-                    <Typography variant="body2">
-                      {user.email}
-                    </Typography>
-                  </TableCell>
-                  
-                  <TableCell>
-                    <Chip 
-                      label={user.role} 
-                      color={getRoleColor(user.role)}
-                      size="small"
-                    />
-                  </TableCell>
-                  
-                  <TableCell>
-                    <Chip 
-                      label={user.isActive ? 'Active' : 'Inactive'} 
-                      color={user.isActive ? 'success' : 'default'}
-                      variant={user.isActive ? 'filled' : 'outlined'}
-                      size="small"
-                    />
-                  </TableCell>
-                  
-                  <TableCell>
-                    <Typography variant="body2">
-                      {new Date(user.createdAt).toLocaleDateString()}
-                    </Typography>
-                  </TableCell>
-                  
-                  <TableCell align="center">
-                    <Tooltip title="View Profile">
-                      <IconButton 
-                        size="small" 
-                        onClick={() => onViewUser(user)}
-                        color="info"
-                      >
-                        <ViewIcon />
-                      </IconButton>
-                    </Tooltip>
-                    
-                    <Tooltip title="Edit User">
-                      <IconButton 
-                        size="small" 
-                        onClick={() => onEditUser(user)}
-                        color="primary"
-                      >
-                        <EditIcon />
-                      </IconButton>
-                    </Tooltip>
-                    
-                    <Tooltip title="Delete User">
-                      <IconButton 
-                        size="small" 
-                        onClick={() => onDeleteUser(user.id)}
-                        color="error"
-                        disabled={user.role === 'admin'} // Prevent deleting admin users
-                      >
-                        <DeleteIcon />
-                      </IconButton>
-                    </Tooltip>
-                  </TableCell>
-                </TableRow>
-              ))
+    <div>
+      <input aria-label="Search team" placeholder="Search by name or email" value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        className="mb-4 block w-full max-w-sm rounded-md border border-gray-300 px-3 py-2 text-sm" />
+      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white">
+        <table className="min-w-full divide-y divide-gray-200 text-sm">
+          <thead className="bg-gray-50 text-left text-xs font-medium uppercase tracking-wide text-gray-500">
+            <tr>
+              <th className="px-4 py-3">Name</th>
+              <th className="px-4 py-3">Email</th>
+              <th className="px-4 py-3 text-right">Open tasks</th>
+              <th className="px-4 py-3 text-right">Done</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {visible.map((u) => (
+              <tr key={u.id}>
+                <td className="flex items-center gap-2 px-4 py-3 font-medium text-gray-900">
+                  <Avatar name={u.name} src={u.avatar} size="sm" />
+                  {u.name}
+                </td>
+                <td className="px-4 py-3 text-gray-600">{u.email}</td>
+                <td className="px-4 py-3 text-right">{counts.open[u.id] ?? 0}</td>
+                <td className="px-4 py-3 text-right">{counts.done[u.id] ?? 0}</td>
+              </tr>
+            ))}
+            {visible.length === 0 && (
+              <tr>
+                <td colSpan={4} className="px-4 py-6 text-center text-gray-500">No team members found</td>
+              </tr>
             )}
-          </TableBody>
-        </Table>
-      </TableContainer>
-
-      {/* Pagination */}
-      <TablePagination
-        rowsPerPageOptions={[5, 10, 25, 50]}
-        component="div"
-        count={filteredUsers.length}
-        rowsPerPage={rowsPerPage}
-        page={page}
-        onPageChange={handleChangePage}
-        onRowsPerPageChange={handleChangeRowsPerPage}
-      />
-    </Paper>
+          </tbody>
+        </table>
+      </div>
+    </div>
   );
 };
-
-export default UserList;

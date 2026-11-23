@@ -1,4 +1,5 @@
 import { gql } from '@apollo/client';
+import { TASK_FIELDS, USER_FIELDS } from './fragments';
 
 export const REGISTER = gql`
   mutation Register($input: RegisterInput!) {
@@ -6,12 +7,11 @@ export const REGISTER = gql`
       token
       refreshToken
       user {
-        id
-        email
-        name
+        ...UserFields
       }
     }
   }
+  ${USER_FIELDS}
 `;
 
 export const LOGIN = gql`
@@ -20,13 +20,11 @@ export const LOGIN = gql`
       token
       refreshToken
       user {
-        id
-        email
-        name
-        avatar
+        ...UserFields
       }
     }
   }
+  ${USER_FIELDS}
 `;
 
 export const REFRESH_TOKEN = gql`
@@ -34,11 +32,6 @@ export const REFRESH_TOKEN = gql`
     refreshToken(refreshToken: $refreshToken) {
       token
       refreshToken
-      user {
-        id
-        email
-        name
-      }
     }
   }
 `;
@@ -46,41 +39,19 @@ export const REFRESH_TOKEN = gql`
 export const CREATE_TASK = gql`
   mutation CreateTask($input: CreateTaskInput!) {
     createTask(input: $input) {
-      id
-      title
-      description
-      status
-      priority
-      createdBy {
-        id
-        name
-      }
-      assignedTo {
-        id
-        name
-      }
-      dueDate
-      createdAt
+      ...TaskFields
     }
   }
+  ${TASK_FIELDS}
 `;
 
 export const UPDATE_TASK = gql`
   mutation UpdateTask($id: ID!, $input: UpdateTaskInput!) {
     updateTask(id: $id, input: $input) {
-      id
-      title
-      description
-      status
-      priority
-      assignedTo {
-        id
-        name
-      }
-      dueDate
-      updatedAt
+      ...TaskFields
     }
   }
+  ${TASK_FIELDS}
 `;
 
 export const DELETE_TASK = gql`
@@ -92,35 +63,26 @@ export const DELETE_TASK = gql`
 export const ASSIGN_TASK = gql`
   mutation AssignTask($taskId: ID!, $userId: ID!) {
     assignTask(taskId: $taskId, userId: $userId) {
-      id
-      assignedTo {
-        id
-        name
-        email
-      }
+      ...TaskFields
     }
   }
+  ${TASK_FIELDS}
 `;
 
 export const UNASSIGN_TASK = gql`
   mutation UnassignTask($taskId: ID!) {
     unassignTask(taskId: $taskId) {
-      id
-      assignedTo {
-        id
-        name
-      }
+      ...TaskFields
     }
   }
+  ${TASK_FIELDS}
 `;
 
 export const UPDATE_PROFILE = gql`
   mutation UpdateProfile($name: String, $avatar: String) {
     updateProfile(name: $name, avatar: $avatar) {
-      id
-      name
-      avatar
-      updatedAt
+      ...UserFields
     }
   }
+  ${USER_FIELDS}
 `;

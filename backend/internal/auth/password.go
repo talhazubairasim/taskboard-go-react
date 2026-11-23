@@ -7,10 +7,10 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
-const (
-	minPasswordLength = 8
-	bcryptCost        = 12
-)
+const minPasswordLength = 8
+
+// BcryptCost is the bcrypt work factor. Tests lower it to keep the suite fast.
+var BcryptCost = 12
 
 var (
 	ErrPasswordTooShort    = errors.New("password must be at least 8 characters long")
@@ -69,7 +69,7 @@ func HashPassword(password string) (string, error) {
 		return "", err
 	}
 
-	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), BcryptCost)
 	if err != nil {
 		return "", err
 	}
